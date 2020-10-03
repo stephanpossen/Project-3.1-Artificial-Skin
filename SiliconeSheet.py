@@ -1,8 +1,9 @@
 """
 Classes to model a deformable sheet
 """
+# Notes: without material the simulation chrashes
 
-from typing import Tuple, Union, List  # used for type hints
+from typing import Tuple, Union, List, Optional  # used for type hints
 
 import pychrono as chrono
 import pychrono.fea as fea
@@ -21,6 +22,7 @@ class Sheet:
         subdiv: the number of times that the original parallelepiped is subdivided on each dimension \
             e.g. [1, 1, 2] means that on the z (vertical) axis the parallelepiped is split in two
         mass: mass of the sheet, assumed to be uniform
+        sphere_swept_thickness: radius used during the collision detection
     """
 
     def __init__(
@@ -29,20 +31,24 @@ class Sheet:
         size: Tuple[float, float, float],
         subdiv: Union[int, Tuple[int, int, int]],
         mass: float = 0,
+        sphere_swept_thickness: Optional[float] = 0.2
     ) -> None:
-
-        self._nodes = None  # store nodes in a 3d list, indeces _nodes[x][y][z]
-        self._elements = None
-        self.material = None  # TODO
-        self.contact_surface = None  # TODO
-        self._mesh = fea.ChMesh()
 
         # use the same subdivision on all axis
         if not isinstance(subdiv, tuple):
             subdiv = (subdiv,) * 3
 
-        self._make_nodes(pos, size, subdiv, mass)
-        self._make_elements()
+        self._nodes = None  # store nodes in a 3d list, indeces _nodes[x][y][z]
+        self._elements = None
+        self._sphere_swept_thickness = sphere_swept_thickness
+        self._pos = pos
+        self._size = size
+        self._subdiv = subdiv
+        self._mass = mass
+        self._material = fea.ChContinuumElastic()    # elastic: no permanet deformation
+        self._contact_surface = None  # fea.ChContactSurfaceMesh()
+        self._contact_material = chrono.ChMaterialSurfaceSMC()
+        self._mesh = fea.ChMesh()
 
     @property
     def mesh(self) -> fea.ChMesh:
@@ -52,6 +58,168 @@ class Sheet:
 
         """
         return self._mesh
+
+    def build(self) -> None:
+        """
+        Assemble the different components together.
+        Call this method after setting the material properties and before using
+        this object.
+
+        Returns:
+            None
+        """
+
+        # this method is necessary because the contact surface and the elements
+        # need a material
+
+        self._make_nodes()
+        self._make_elements()
+
+        self._contact_surface = fea.ChContactSurfaceMesh(self._contact_material)
+        self._contact_surface.SetMesh(self._mesh)
+        self._mesh.AddContactSurface(self._contact_surface)
+        self._contact_surface.AddFacesFromBoundary(self._sphere_swept_thickness)
+
+    def set_elastic_properies(self,
+                              young: Optional[float] = None,
+                              poisson: Optional[float] = None,
+                              shear_modulus: Optional[float] = None,
+                              density: Optional[float] = None,
+                              rayleight_damping_m: Optional[float] = None,
+                              rayleight_damping_k: Optional[float] = None
+                              ) -> None:
+        """
+        The material is assumed to be elastic (all deformations are reversible)
+        The properties of the material are related to the stress (internal force
+        generated when a force is applied to the material) and the strain
+        (deformation due to the stress).
+
+        Given a planar section of the material, the normal stress is
+        :σ = F_normal / Area:
+        The average shear stress (parallel to the section) is :τ = Force / Area:
+
+        The linear strain is the ratio of the change in length and the original length.
+        :ε = ΔL / L:
+        The shear strain  γ is the change of the angle.
+
+        Then the Young modulus E is the ralation between the normal stress and
+        the linear strain (Hooke's law).
+        :σ = E ε:
+
+        The shear modulus G is the relation between the shear stress and the
+        shear strain.
+        :τ = G γ:
+
+        "Poisson's ratio ν (nu) is a measure of the Poisson effect,
+        that describes the expansion or contraction of a material in
+        directions perpendicular to the direction of loading"
+        (https://en.wikipedia.org/wiki/Poisson%27s_ratio).
+
+        It is defined as :ν = ε lat / ε axial:, where ε axial is the strain
+        in the direction of the applied force and ε lat is the strain perpendiculat to it.
+        The value is between 0 and 0.5, where 0.5 is an incopressible material.
+
+        The density is the ratio between the mass and the volume of the material.
+        :d = m / V:
+
+        The damping effect of the material is described by the mass-proportional
+        damping factor and by the stiffness-proportional damping factor. (# TODO document better)
+
+
+
+        If a parameter is set to None then the default Chrono::Engine is used.
+
+        Args:
+            young: Young modulus E (in Pa, Pascal)
+            poisson: Poisson ratio ν (betwenn 0 and 0.5 included)
+            shear_modulus: Shear modulus G (in Pa, Pascal)
+            density: density of the material (in kg/m^2)
+            rayleight_damping_m: mass-proportional damping factor
+            rayleight_damping_k: stiffness-proportional damping factor
+
+        Returns:
+            None
+        """
+        # list of method used to set the values and the values to be set
+        setter = {
+            self._material.Set_E: young,
+            self._material.Set_v: poisson,
+            self._material.Set_G: shear_modulus,
+            self._material.Set_density: density,
+            self._material.Set_RayleighDampingK: rayleight_damping_k,
+            self._material.Set_RayleighDamping: rayleight_damping_m,
+        }
+
+        # set the value if it is not None
+        for s, d in setter.items():
+            if d is not None:
+                s(d)
+
+    def set_contact_properties(self,
+                               young: Optional[float] = None,
+                               poisson: Optional[float] = None,
+                               static_friction: Optional[float] = None,
+                               kinetic__friction: Optional[float] = None,
+                               rolling_friction: Optional[float] = None,
+                               spinning_friction: Optional[float] = None,
+                               restitution: Optional[float] = None,
+                               adhesion: Optional[float] = None,
+                               adhesoinMultDMT: Optional[float] = None,
+                               adhesionSPerko: Optional[float] = None,
+                               kn: Optional[float] = None,
+                               kt: Optional[float] = None,
+                               gn: Optional[float] = None,
+                               gt: Optional[float] = None
+                               ) -> None:
+        """
+        Set the parameter of the material of contact surface, i.e. the behaviour
+        during a collision.
+
+        If a value is None then the default Chrono::Engine is used
+
+        Args:
+            young: see :set_elastic_properies:
+            poisson: set_elastic_properies
+            static_friction: friction coefficient when the object is not moving yet
+            kinetic__friction: friction coeffiction when the object is moving
+            rolling_friction: friction coefficient when the object is rolling
+            spinning_friction: friction coefficient when the object is spinning
+            restitution: ratio between the velocity after and before the collision (between 0 and 1)
+            adhesion: adesion force
+            adhesoinMultDMT:
+            adhesionSPerko:
+            kn: normal stiffness coefficient
+            kt: tangential stiffness coefficient
+            gn: normal damping coefficient
+            gt: tangential damping coefficient
+
+        Returns:
+            None
+
+        """
+
+        # pairs of values to set and setter methods
+        setter = {
+            self._contact_material.SetYoungModulus: young,
+            self._contact_material.SetPoissonRatio: poisson,
+            self._contact_material.SetSfriction: static_friction,
+            self._contact_material.SetKfriction: kinetic__friction,
+            self._contact_material.SetRollingFriction: rolling_friction,
+            self._contact_material.SetSpinningFriction: spinning_friction,
+            self._contact_material.SetRestitution: restitution,
+            self._contact_material.SetAdhesion: adhesion,
+            self._contact_material.SetAdhesionMultDMT: adhesoinMultDMT,
+            self._contact_material.SetAdhesionSPerko: adhesionSPerko,
+            self._contact_material.SetKn: kn,
+            self._contact_material.SetKt: kt,
+            self._contact_material.SetGn: gn,
+            self._contact_material.SetGt: gt
+            }
+
+        # set the value only if it s not None
+        for s, d in setter.items():
+            if d is not None:
+                s(d)
 
     def sef_fix(self, faces: List[str] = [], edges: List[str] = [], fix=True) -> None:
         """
@@ -75,7 +243,7 @@ class Sheet:
             edges: list of edges to fix
             fix: whether to fix or unfix the selected nodes
         Raises:
-            ValueError: onincorrect strings
+            ValueError: on incorrect strings
 
         """
         # TODO find a better way to identify faces and edges
@@ -96,31 +264,20 @@ class Sheet:
         """
         # TODO
 
-    def _make_nodes(
-        self,
-        pos: Tuple[float, float, float],
-        size: Tuple[float, float, float],
-        subdiv: Tuple[int, int, int],
-        mass,
-    ) -> None:
+    def _make_nodes(self) -> None:
         """
         Generate the list of nodes
 
-        Args:
-            pos: position of the mesh w.r.t the left most bottom front node
-            size: size of the sheet
-            subdiv: subdivisions on each axis
-            mass: total mass
         """
-        pos = chrono.ChVectorD(*pos)
-        mass /= (subdiv[0] + 1) * (subdiv[1] + 1) * (subdiv[2] + 1)
+        pos = chrono.ChVectorD(*self._pos)
+        mass = self._mass / (self._subdiv[0] + 1) * (self._subdiv[1] + 1) * (self._subdiv[2] + 1)
         # for each dimension generate the list of positions where to generate the nodes
         # the index of the node identify the posiion in the grid
-        grid = [np.linspace(0, dim, sub + 1) for dim, sub in zip(size, subdiv)]
+        grid = [np.linspace(0, dim, sub + 1) for dim, sub in zip(self._size, self._subdiv)]
 
         # 3d array containing the nodes
         self._nodes = np.ndarray(
-            [i + 1 for i in subdiv], dtype=np.dtype(fea.ChNodeFEAxyz)
+            [i + 1 for i in self._subdiv], dtype=np.dtype(fea.ChNodeFEAxyz)
         )
 
         # iterator for self._nodes
@@ -221,4 +378,5 @@ class Sheet:
         tetra = fea.ChElementTetra_4()
         self._mesh.AddElement(tetra)
         tetra.SetNodes(nodeA, nodeB, nodeC, nodeD)
+        tetra.SetMaterial(self._material)
         return tetra
