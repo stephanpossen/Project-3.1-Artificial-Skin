@@ -31,7 +31,7 @@ class Sheet:
         size: Tuple[float, float, float],
         subdiv: Union[int, Tuple[int, int, int]],
         mass: float = 0,
-        sphere_swept_thickness: Optional[float] = 0.2
+        sphere_swept_thickness: Optional[float] = 0.2,
     ) -> None:
 
         # use the same subdivision on all axis
@@ -45,7 +45,7 @@ class Sheet:
         self._size = size
         self._subdiv = subdiv
         self._mass = mass
-        self._material = fea.ChContinuumElastic()    # elastic: no permanet deformation
+        self._material = fea.ChContinuumElastic()  # elastic: no permanet deformation
         self._contact_surface = None  # fea.ChContactSurfaceMesh()
         self._contact_material = chrono.ChMaterialSurfaceSMC()
         self._mesh = fea.ChMesh()
@@ -80,14 +80,15 @@ class Sheet:
         self._mesh.AddContactSurface(self._contact_surface)
         self._contact_surface.AddFacesFromBoundary(self._sphere_swept_thickness)
 
-    def set_elastic_properies(self,
-                              young: Optional[float] = None,
-                              poisson: Optional[float] = None,
-                              shear_modulus: Optional[float] = None,
-                              density: Optional[float] = None,
-                              rayleight_damping_m: Optional[float] = None,
-                              rayleight_damping_k: Optional[float] = None
-                              ) -> None:
+    def set_elastic_properies(
+        self,
+        young: Optional[float] = None,
+        poisson: Optional[float] = None,
+        shear_modulus: Optional[float] = None,
+        density: Optional[float] = None,
+        rayleight_damping_m: Optional[float] = None,
+        rayleight_damping_k: Optional[float] = None,
+    ) -> None:
         """
         The material is assumed to be elastic (all deformations are reversible)
         The properties of the material are related to the stress (internal force
@@ -155,22 +156,23 @@ class Sheet:
             if d is not None:
                 s(d)
 
-    def set_contact_properties(self,
-                               young: Optional[float] = None,
-                               poisson: Optional[float] = None,
-                               static_friction: Optional[float] = None,
-                               kinetic__friction: Optional[float] = None,
-                               rolling_friction: Optional[float] = None,
-                               spinning_friction: Optional[float] = None,
-                               restitution: Optional[float] = None,
-                               adhesion: Optional[float] = None,
-                               adhesoinMultDMT: Optional[float] = None,
-                               adhesionSPerko: Optional[float] = None,
-                               kn: Optional[float] = None,
-                               kt: Optional[float] = None,
-                               gn: Optional[float] = None,
-                               gt: Optional[float] = None
-                               ) -> None:
+    def set_contact_properties(
+        self,
+        young: Optional[float] = None,
+        poisson: Optional[float] = None,
+        static_friction: Optional[float] = None,
+        kinetic__friction: Optional[float] = None,
+        rolling_friction: Optional[float] = None,
+        spinning_friction: Optional[float] = None,
+        restitution: Optional[float] = None,
+        adhesion: Optional[float] = None,
+        adhesoinMultDMT: Optional[float] = None,
+        adhesionSPerko: Optional[float] = None,
+        kn: Optional[float] = None,
+        kt: Optional[float] = None,
+        gn: Optional[float] = None,
+        gt: Optional[float] = None,
+    ) -> None:
         """
         Set the parameter of the material of contact surface, i.e. the behaviour
         during a collision.
@@ -213,56 +215,105 @@ class Sheet:
             self._contact_material.SetKn: kn,
             self._contact_material.SetKt: kt,
             self._contact_material.SetGn: gn,
-            self._contact_material.SetGt: gt
-            }
+            self._contact_material.SetGt: gt,
+        }
 
         # set the value only if it s not None
         for s, d in setter.items():
             if d is not None:
                 s(d)
 
-    def sef_fix(self, faces: List[str] = [], edges: List[str] = [], fix=True) -> None:
+    def sef_fix(
+        self,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        z: Optional[int] = None,
+        fix=True,
+    ) -> None:
         """
-        Fix the nodes of some faces and edges of the mesh, i.e. they cannot be moves.
-
-        The faces are identified by the following strings
-
-        * x+: left face
-        * x-: right face
-        * y+: back face
-        * y-: front face
-        * z+: top face
-        * z-: bottom face
-
-        The edges are identified by the intersection of two faces:
-            x+y+ is the edge between the top and the left face
-        Faces with no intersections are ignored
+        Set all the nodes in a slice as fixed, so that they cannot move
 
         Args:
-            faces: list of faces to fix
-            edges: list of edges to fix
-            fix: whether to fix or unfix the selected nodes
-        Raises:
-            ValueError: on incorrect strings
+            x: x coord to fix, if None use all
+            y: y coord to fix, if None use all
+            z: z coord to fix, if None use all
+            fix: whether to fix or unfix
+
+        Returns:
+            None.
 
         """
-        # TODO find a better way to identify faces and edges
-        pass
+        with np.nditer(
+            self._nodes[x, y, z],
+            flags=["multi_index", "refs_ok"],
+            op_flags=["readwrite"],
+        ) as it:
+            for i in it:
+                i.item().SetFixed(fix)
 
-    def set_visualization(self, *args) -> None:
+    def set_visualization(
+        self,
+        original_wireframe: bool = False,
+        display_nodes: bool = False,
+        node_thikness: float = 0.015,
+        display_surf: bool = False,
+        smooth_surf: bool = True,
+        display_contact: bool = False,
+    ) -> None:
         """
         Set how the mesh will be displayed in the simulation.
 
-        Multiple calls to this methods does not overwrite the previous visualization, but
+        Multiple calls to this methods does not overwrite the previous visualization,
         but displays all the visualizations set
 
-        Args:
+        Based on demo_FEA_brick.py by Simone Benatti
 
+        Args:
+            original_wireframe: display the original structure as wireframe
+            display_nodes: display a cube on each node
+            node_thikness: size of the (visual) node
+            display_surf: display the surface of the mesh
+            smooth_surf: use smooth shading for the surface
+            display_contact: display the contact mesh
         Returns:
             None
 
         """
-        # TODO
+
+        # Original ref
+        if original_wireframe:
+            visualization = fea.ChVisualizationFEAmesh(self._mesh)
+            visualization.SetFEMdataType(fea.ChVisualizationFEAmesh.E_PLOT_SURFACE)
+            visualization.SetWireframe(True)
+            visualization.SetDrawInUndeformedReference(True)
+            self._mesh.AddAsset(visualization)
+
+        # Node Position
+        if display_nodes:
+            visualization = fea.ChVisualizationFEAmesh(self._mesh)
+            visualization.SetFEMglyphType(
+                fea.ChVisualizationFEAmesh.E_GLYPH_NODE_DOT_POS
+            )
+            visualization.SetFEMdataType(fea.ChVisualizationFEAmesh.E_PLOT_SURFACE)
+            visualization.SetSymbolsThickness(node_thikness)
+            self._mesh.AddAsset(visualization)
+
+        # Surface
+        if display_surf:
+            visualization = fea.ChVisualizationFEAmesh(self._mesh)
+            visualization.SetFEMdataType(fea.ChVisualizationFEAmesh.E_PLOT_NODE_P)
+            visualization.SetSmoothFaces(smooth_surf)
+            self._mesh.AddAsset(visualization)
+
+        # Contact
+        if display_contact:
+            visualization = fea.ChVisualizationFEAmesh(self._mesh)
+            visualization.SetFEMdataType(
+                fea.ChVisualizationFEAmesh.E_PLOT_CONTACTSURFACES
+            )
+            visualization.SetWireframe(True)
+            visualization.SetDefaultMeshColor(chrono.ChColor(1, 0.5, 0))
+            self._mesh.AddAsset(visualization)
 
     def _make_nodes(self) -> None:
         """
@@ -270,10 +321,17 @@ class Sheet:
 
         """
         pos = chrono.ChVectorD(*self._pos)
-        mass = self._mass / (self._subdiv[0] + 1) * (self._subdiv[1] + 1) * (self._subdiv[2] + 1)
+        mass = (
+            self._mass
+            / (self._subdiv[0] + 1)
+            * (self._subdiv[1] + 1)
+            * (self._subdiv[2] + 1)
+        )
         # for each dimension generate the list of positions where to generate the nodes
         # the index of the node identify the posiion in the grid
-        grid = [np.linspace(0, dim, sub + 1) for dim, sub in zip(self._size, self._subdiv)]
+        grid = [
+            np.linspace(0, dim, sub + 1) for dim, sub in zip(self._size, self._subdiv)
+        ]
 
         # 3d array containing the nodes
         self._nodes = np.ndarray(
@@ -305,12 +363,12 @@ class Sheet:
 
             Nodes in the cube:
 
-              8-----7
-             /|    /|
-            5-----6 |
-            | 4---|-3
-            |/    |/
-            1-----2
+              8------7
+             /|     /|
+            5------6 |
+            | 4----|-3
+            |/     |/
+            1------2
 
             7 has index (i, j, k), 1 has (i-1, j-1, k-1)
         Returns:
