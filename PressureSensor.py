@@ -28,11 +28,9 @@ class PressureSensor:
         self._diameter = 8  # in mm
         self._height = 0.35  # in mm
         self._mass = 0.23  # in grams
-        self._density = 1.23  # in g/cm^-3, density of polyimide
+        self._density = 1.40  # in g/cm^-3, density of polyimide
         self._contact_material = chrono.ChMaterialSurfaceSMC
         self._min_detectable_force = 20  # in grams
-
-        self._body = chrono.ChBodyEasyCylinder(self._diameter, self._height, self._density, False, True, self._contact_material)
 
     @property
     def body(self) -> chrono.ChBodyEasyCylinder:
@@ -49,8 +47,12 @@ class PressureSensor:
         :param self:
         :return:
         """
+        "Set friction, value = 0.42"
+        "Set young modulus, value = 2.7 GPa"
+        self._body = chrono.ChBodyEasyCylinder(self._diameter, self._height, self._density, False, True, self._contact_material)
         self._body.SetPos(chrono.ChVectorD(*self._position))
         self._body.SetMass(self._mass)
+
 
     def set_contact_properties(
         self,
