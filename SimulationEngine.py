@@ -4,16 +4,103 @@ It contains the physical system, the sheets, the sensors and those objectes
 needed to manage them.
 Moreover it uncludes the built-in visualization
 """
-from typing import Tuple, Union, List, Dict, Any, Optional  # used for type hints
+# Parameters
+# General
+#    Effective curvature radius = 1 (no idea what it is)
+#    Suggested margin = 0.006 (no idea)
+#    time step = 0.004  (how much time is simulated at each step)
+#    length = 10 (how long is the simulation, in seconds)
+
+# Built-in visualization
+#    Data path = "..." (path to the folder with the textures)
+#    title = "..." (title of the window)
+#    window_width = 1024 (dimensions of the window)
+#    window_height = 768
+#    fullscreen = False
+#    shadows = True
+#    antialias = True
+#    camera_pos_x = some float (position and rotation of the camera)
+#    camera_pos_y =
+#    camera_pos_z =
+#    camera_rot_x =
+#    camera_rot_y =
+#    camera_rot_z =
+
+# Solver -> solve differential equations
+#    iterations = 1000 (int)
+#    tolerance = 1e-12 (float)
+#    diagonal preconditioner = True
+
+# Stepper -> time integration
+#    alpha = -0.2
+#    max iterations = 100
+#    absolute tolerance = 1e-5
+#    scaling = True
+
+# Silicone sheets   -> 2 sheets
+#    pos_x1 = float
+#    pos_y1
+#    pos_z1
+#    size_x1 = float
+#    size_y1
+#    size_z1
+#    subdiv_x1 = int
+#    subdiv_y1
+#    subdiv_z1
+#    pos_x2 = float -> can we assume that they have the same size, subdivisions and mass?
+#    pos_y2
+#    pos_z2
+#    size_x2 = float
+#    size_y2
+#    size_z2
+#    subdiv_x2 = int
+#    subdiv_y2
+#    subdiv_z2
+#    mass1
+#    mass2
+#    sphere_swept_thickness = float (something for the collisions, but I don't know the details)
+#   Elastic
+#    young
+#    poisson
+#    density
+#    shear  -> optional
+#    rayleight damping m -> optional
+#    rayleight damping k -> optional
+#   Contact
+#    young
+#    poisson
+#    static friction
+#    kinetic friction
+#    rolling friction -> optional
+#    spinning friction -> optional
+#    restitution
+#    adhesion
+#    adhesionMultDMt, adhesionSPerko, kn, kt, gn, gt (some other parameters probably not used)
+#   Visualization
+#    original wireframe = False (show initial position of the edges)
+#    display nodes = False (show a small cube on each node)
+#    node thikness = 0.015 (size of those cube)
+#    display surface = False (disaply the surface of the sheets)
+#    smooth_surf = True
+#    display contact = False
+
+# Pressure sensors
+#    n = int (how many sensors)
+#    pos_x  (we need the position of each sensor)
+#    pos_y
+#    pos_z
+#    Optional: diameter, height, mass, density, min detectable force, friction, young modulus, adhesions, etc, ...
+
+from typing import Dict, Any, Optional  # used for type hints
 
 from SiliconeSheet import Sheet
 from PressureSensor import PressureSensor
 import SimulationSettings
 
 import pychrono as chrono
-import pychrono.fea as fea
+# import pychrono.fea as fea
 import pychrono.irrlicht as irr
-import numpy as np
+# import numpy as np
 
 
 class Simulation:
@@ -70,6 +157,7 @@ class Simulation:
             self._app.AddTypicalLights()
             # TODO take the info for the came and lighs from the configuation
             self._app.AddTypicalCamera(irr.vector3df(-1, -1, 0), irr.vector3df(0, 0, 0))
+            # TODO this has too many parameters and it is not that important
             self._app.AddLightWithShadow(
                 irr.vector3df(1.5, 5.5, -2.5),
                 irr.vector3df(0, 0, 0),
@@ -124,7 +212,7 @@ class Simulation:
             while self._system.GetChTime() > self._life:
                 self.computeData()
                 # TODO parameter from the configuration
-                self._system.DoStepDynamics(0.02)
+                self._system.DoStepDynamics(0.04)
         self.computeData()  # final state
 
     @classmethod
@@ -148,14 +236,94 @@ class Simulation:
             for i in range(n):
                 cls(conf, visualization, output())
 
-    def _make_sheets(self):
-        pass
+    def _make_sheets(self) -> None:
+        """
+        Generate 2 sheets with the parameters given by the configuration
 
-    def _make_sensors(self):
-        pass
+        Returns:
+            None.
+        """
+
+        self._sheets = [None, None]
+        # TODO parameters from the configuration
+        pos1 = (0, 0, 0)
+        pos2 = (0, 0, 0)
+        size = (0, 0, 0)
+        subdiv = (0, 0, 0)
+        mass = 0
+        sphere_swept_thickness = 0
+
+        young = 0
+        poisson = 0
+        shear = 0
+        density = 0
+        static_friction = 0
+        kinetic_friction = 0
+        rolling_friction = 0
+        spinning_friction = 0
+        restitution = 0
+        adhesion = 0
+
+        sheet = Sheet(pos1, size, subdiv, mass, sphere_swept_thickness)
+        sheet.set_elastic_properies(young, poisson, shear, density)
+        sheet.set_contact_properties(
+            young,
+            poisson,
+            static_friction,
+            kinetic_friction,
+            rolling_friction,
+            spinning_friction,
+            restitution,
+            adhesion)
+        sheet.build()
+        self._sheets[0] = sheet
+
+        sheet = Sheet(pos2, size, subdiv, mass, sphere_swept_thickness)
+        sheet.set_elastic_properies(young, poisson, shear, density)
+        sheet.set_contact_properties(
+            young,
+            poisson,
+            static_friction,
+            kinetic_friction,
+            rolling_friction,
+            spinning_friction,
+            restitution,
+            adhesion)
+        sheet.build()
+        self._sheets[1] = sheet
+
+        self._system.AddMesh(self._sheets[0].mesh)
+        self._system.AddMesh(self._sheets[1].mesh)
+
+    def _make_sensors(self) -> None:
+        """
+        Generate a list of sensors in the given positions
+
+        Returns:
+            None.
+
+        """
+        n = 0
+        # TODO consider using a numpy array
+        self._sensors = [None] * n
+        tmp = None
+        for i in range(n):
+            # TODO from the configuaration
+            pos = (0, 0, 0)
+            tmp = PressureSensor(pos)
+            # TODO make material
+            tmp.build()
+            self._sensors[i] = tmp
+            self._system.AddBody(tmp)
 
     def _add_force(self):
         pass
 
     def computeData(self):
-        pass
+        data = [0] * len(self._sensors)
+        if self._output is not None:
+            for i, sens in enumerate(self._sensors):
+                # TODO use correct method
+                data[i] = sens.getAppliedForce()
+            # TODO use correct method
+            self._output.setData(data)
