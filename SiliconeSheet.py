@@ -279,6 +279,7 @@ class Sheet:
             None
 
         """
+        # TODO show the wireframe alone
 
         # Original ref
         if original_wireframe:
